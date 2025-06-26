@@ -4,29 +4,62 @@ from datetime import datetime, timedelta
 DB_NAME = "orders.db"
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect("orders.db")
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        user_id INTEGER,
-        order_type TEXT,
-        currency TEXT,
-        amount REAL,
-        bank TEXT,
-        rate REAL,
-        status TEXT DEFAULT 'open',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS escrows (
-        order_id INTEGER PRIMARY KEY,
-        buyer_id INTEGER,
-        seller_id INTEGER,
-        confirmed_by_buyer INTEGER DEFAULT 0,
-        confirmed_by_seller INTEGER DEFAULT 0
-    )""")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            user_id INTEGER,
+            order_type TEXT,
+            currency TEXT,
+            amount REAL,
+            bank TEXT,
+            rate REAL,
+            status TEXT DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 👇 Таблица пользователей
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            phone TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
+
+def save_user(user_id: int, username: str, phone: str):
+    conn = sqlite3.connect("orders.db")
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO users (user_id, username, phone)
+        VALUES (?, ?, ?)
+    """, (user_id, username, phone))
+    conn.commit()
+    conn.close()
+
+def get_user(user_id: int):
+    conn = sqlite3.connect("orders.db")
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+def get_all_users():
+    conn = sqlite3.connect("orders.db")
+    c = conn.cursor()
+    c.execute("SELECT * FROM users")
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
 
 def add_order(username, user_id, order_type, currency, amount, bank, rate):
     conn = sqlite3.connect(DB_NAME)

@@ -14,27 +14,79 @@ from db import (
     add_escrow, confirm_escrow,
     remove_old_orders
 )
-
+from db import get_all_users
+from db import save_user
 logging.basicConfig(level=logging.INFO)
+user_data = {}  # { user_id: {"phone": "...", "username": "..." } }
 
+   
+
+    
 # Кнопочное меню
+from telegram import KeyboardButton, ReplyKeyboardMarkup
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+
+    if user_id in user_data and "phone" in user_data[user_id]:
+        # Телефон уже есть — показываем меню
+        await send_main_menu(update, context)
+    else:
+        # Нет телефона — просим поделиться
+        button = KeyboardButton("📱 Поделиться номером", request_contact=True)
+        keyboard = ReplyKeyboardMarkup([[button]], one_time_keyboard=True, resize_keyboard=True)
+        await update.message.reply_text("Пожалуйста, поделитесь своим номером телефона:", reply_markup=keyboard)
+
+
+async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     keyboard = [
         [KeyboardButton("📥 Купить"), KeyboardButton("📤 Продать")],
         [KeyboardButton("📄 Все заявки")]
     ]
+
+    if user_id in ADMIN_IDS:
+        keyboard.append([KeyboardButton("🔐 Панель админа")])
+
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("Добро пожаловать! Выберите действие:", reply_markup=reply_markup)
+    await update.message.reply_text("📋 Главное меню:", reply_markup=reply_markup)
 
 # Обработка текстовых кнопок
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    user_id = update.effective_user.id
+
     if text == "📥 Купить":
-        await update.message.reply_text("Используй /buy USDT 1000 Monobank 38.5")
+        await update.message.reply_text("Введите: /buy USDT 1000 Monobank 38.5")
+
     elif text == "📤 Продать":
-        await update.message.reply_text("Используй /sell USDT 500 PrivatBank 39.2")
+        await update.message.reply_text("Введите: /sell USDT 500 Monobank 39.2")
+
     elif text == "📄 Все заявки":
         await show_orders(update, context)
+
+    elif text == "🔐 Панель админа" and user_id in ADMIN_IDS:
+        await show_users(update)
+
+    elif text == "🏠 На головну":
+        await start(update, context)
+
+    else:
+        await update.message.reply_text("Команда не распознана.")
+
+
+async def show_users(update: Update):
+    users = get_all_users()
+    if not users:
+        await update.message.reply_text("Нет пользователей.")
+        return
+
+    msg = "👤 Список пользователей:\n\n"
+    for user_id, username, phone in users:
+        msg += f"🆔 {user_id}\n🔸 @{username}\n📞 {phone}\n\n"
+
+    await update.message.reply_text(msg)
 
 # Добавить заявку
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,8 +154,49 @@ async def clear_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remove_old_orders()
     await update.message.reply_text("🧹 Старые заявки удалены.")
 
+async def sendphone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from telegram import KeyboardButton, ReplyKeyboardMarkup
+
+    button = KeyboardButton(text="📱 Поделиться номером", request_contact=True)
+    keyboard = ReplyKeyboardMarkup([[button]], one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Нажми кнопку ниже, чтобы поделиться номером телефона:", reply_markup=keyboard)
+
+async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    contact = update.message.contact
+    user = update.effective_user
+    user_id = user.id
+    username = user.username or "—"
+    phone = contact.phone_number
+
+    save_user(user_id, username, phone)
+
+    await update.message.reply_text("✅ Спасибо! Номер телефона сохранён.")
+    await send_main_menu(update, context)
+
+
+async def userinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ У вас нет доступа к этой команде.")
+        return
+    if not context.args:
+        await update.message.reply_text("Использование: /userinfo <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Некорректный user_id.")
+        return
+    data = user_data.get(uid)
+    if not data:
+        await update.message.reply_text("Нет данных о пользователе.")
+        return
+    await update.message.reply_text(f"Номер телефона пользователя: {data.get('phone', 'неизвестен')}")
+
 # Запуск
 app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("sendphone", sendphone))
+app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("buy", buy))
 app.add_handler(CommandHandler("sell", sell))
@@ -112,6 +205,7 @@ app.add_handler(CommandHandler("clear_old", clear_old))
 app.add_handler(CommandHandler("orders", show_orders))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
 app.add_handler(CallbackQueryHandler(handle_callback))
+app.add_handler(CommandHandler("userinfo", userinfo))
 
 # Фоновая очистка
 async def cleaner_callback(context: ContextTypes.DEFAULT_TYPE):
